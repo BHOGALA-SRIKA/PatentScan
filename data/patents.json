@@ -1,0 +1,19 @@
+{
+  "patents": [
+    {
+      "publication_number": "US20200334457A1",
+      "title": "Image recognition method and apparatus",
+      "abstract": "This disclosure proposes an image recognition method and apparatus. The method obtains an image, processes it using blocks of a residual neural network, an attention model, convolution layers, a pooling layer, and a bidirectional neural network to determine label information for the image."
+    },
+    {
+      "publication_number": "US20220222916A1",
+      "title": "Image recognition system, image recognition apparatus, image recognition method, and computer readable medium",
+      "abstract": "A system processes a sequence of images by selecting reference and proximity images. It uses convolution and activation function processing to reuse results from the reference image when processing the proximity image, reducing repeated computation."
+    },
+    {
+      "publication_number": "US20160140426A1",
+      "title": "Systems and methods for multi-factor image recognition",
+      "abstract": "A mechanism for image recognition uses multiple factors and environmental contextual attributes to create likelihood tiers in an image recognition database, excluding irrelevant entries to improve search speed and accuracy."
+    }
+  ]
+}

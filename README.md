@@ -29,8 +29,23 @@ To learn more about Next.js, take a look at the following resources:
 
 You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
 
-## Deploy on Vercel
+## Patent Collector (Google Patents Scraper)
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+To collect genuine patent records from Google Patents and generate vector embeddings:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+# Ensure pgvector-db container is active
+docker start pgvector-db
+
+# Run collector script
+python scripts/patent_collector.py
+```
+
+### Safety & Features:
+- Preserves all existing patent records and embeddings.
+- Deduplicates on `publication_number`.
+- Enforces rate limits with polite request delays.
+- Targets authentic records in DBMS, Computer Networks, Cybersecurity, and AI/ML.
+- Computes 384-dimensional dense vectors using `sentence-transformers/all-MiniLM-L6-v2`.
+- Automatically populates both `patents` and `patent_embeddings` tables in PostgreSQL.
+

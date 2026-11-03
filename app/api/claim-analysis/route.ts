@@ -1,30 +1,43 @@
-import { NextResponse } from "next/server";
-import { pool } from "@/lib/postgres";
 
-export async function POST(request: Request) {
-  const client = await pool.connect();
+import { NextResponse, NextRequest } from "next/server";
+import { pool } from "@/lib/postgres";
+import { getAuthUser } from "@/lib/authMiddleware";
+
+export async function POST(request: NextRequest) {
+  const authUser = getAuthUser(request);
+
+  if (!authUser) {
+    return NextResponse.json(
+      { success: false, error: "Authentication required." },
+      { status: 401 }
+    );
+  }
+
+  // JWT user_id may be a string. Convert it safely to a number.
+  const userId = Number(authUser.user_id);
+
+  if (!Number.isSafeInteger(userId) || userId <= 0) {
+    console.error("Invalid JWT user ID:", authUser.user_id);
+    return NextResponse.json(
+      { success: false, error: "Invalid authenticated user ID." },
+      { status: 401 }
+    );
+  }
+
+  let client;
 
   try {
     const body = await request.json();
 
-    const userId = Number(body.user_id);
     const title = String(body.title || "").trim();
     const description = String(body.invention_description || "").trim();
-
     const claims = body.claim_elements;
-
-    if (!Number.isInteger(userId) || userId <= 0) {
-      return NextResponse.json(
-        { success: false, error: "A valid user_id is required." },
-        { status: 400 }
-      );
-    }
 
     if (!title || !description) {
       return NextResponse.json(
         {
           success: false,
-          error: "Investigation title and invention description are required.",
+          error: "Investigation title and invention description are required."
         },
         { status: 400 }
       );
@@ -41,7 +54,7 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           success: false,
-          error: "Provide at least one non-empty claim element.",
+          error: "Provide at least one non-empty claim element."
         },
         { status: 400 }
       );
@@ -54,6 +67,8 @@ export async function POST(request: Request) {
       );
     }
 
+    client = await pool.connect();
+
     await client.query("BEGIN");
 
     const investigationResult = await client.query(
@@ -65,7 +80,6 @@ export async function POST(request: Request) {
     );
 
     const investigation = investigationResult.rows[0];
-
     const savedClaims = [];
 
     for (let i = 0; i < claims.length; i++) {
@@ -74,7 +88,12 @@ export async function POST(request: Request) {
           (investigation_id, element_text, element_order, importance)
          VALUES ($1, $2, $3, $4)
          RETURNING element_id, element_text, element_order, importance`,
-        [investigation.investigation_id, claims[i].trim(), i + 1, "MEDIUM"]
+        [
+          investigation.investigation_id,
+          claims[i].trim(),
+          i + 1,
+          "MEDIUM"
+        ]
       );
 
       savedClaims.push(result.rows[0]);
@@ -87,12 +106,15 @@ export async function POST(request: Request) {
         success: true,
         message: "Investigation and claim elements saved successfully.",
         investigation,
-        claim_elements: savedClaims,
+        claim_elements: savedClaims
       },
       { status: 201 }
     );
+
   } catch (error: unknown) {
-    await client.query("ROLLBACK");
+    if (client) {
+      await client.query("ROLLBACK").catch(() => {});
+    }
 
     console.error("Claim analysis save error:", error);
 
@@ -102,8 +124,7 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           success: false,
-          error:
-            "The supplied user_id does not exist in app_users. A valid user account is required.",
+          error: "Authenticated user does not exist in app_users."
         },
         { status: 400 }
       );
@@ -113,28 +134,48 @@ export async function POST(request: Request) {
       { success: false, error: "Unable to save claim analysis." },
       { status: 500 }
     );
+
   } finally {
-    client.release();
+    client?.release();
   }
 }
 
-export async function GET(request: Request) {
+export async function GET(request: NextRequest) {
+  const authUser = getAuthUser(request);
+
+  if (!authUser) {
+    return NextResponse.json(
+      { success: false, error: "Authentication required." },
+      { status: 401 }
+    );
+  }
+
+  const userId = Number(authUser.user_id);
+
+  if (!Number.isSafeInteger(userId) || userId <= 0) {
+    return NextResponse.json(
+      { success: false, error: "Invalid authenticated user ID." },
+      { status: 401 }
+    );
+  }
+
   try {
     const { searchParams } = new URL(request.url);
     const investigationId = Number(
       searchParams.get("investigation_id")
     );
 
-    if (!Number.isInteger(investigationId) || investigationId <= 0) {
+    if (!Number.isSafeInteger(investigationId) || investigationId <= 0) {
       return NextResponse.json(
         {
           success: false,
-          error: "A valid investigation_id query parameter is required.",
+          error: "A valid investigation_id query parameter is required."
         },
         { status: 400 }
       );
     }
 
+    // Ownership is checked directly in SQL.
     const result = await pool.query(
       `SELECT
           i.investigation_id,
@@ -150,13 +191,17 @@ export async function GET(request: Request) {
        LEFT JOIN claim_elements ce
          ON ce.investigation_id = i.investigation_id
        WHERE i.investigation_id = $1
+         AND i.user_id = $2
        ORDER BY ce.element_order`,
-      [investigationId]
+      [investigationId, userId]
     );
 
     if (result.rows.length === 0) {
       return NextResponse.json(
-        { success: false, error: "Investigation not found." },
+        {
+          success: false,
+          error: "Investigation not found or unauthorized access."
+        },
         { status: 404 }
       );
     }
@@ -173,19 +218,23 @@ export async function GET(request: Request) {
           element_id: row.element_id,
           element_text: row.element_text,
           element_order: row.element_order,
-          importance: row.importance,
-        })),
+          importance: row.importance
+        }))
     };
 
     return NextResponse.json({
       success: true,
-      investigation,
+      investigation
     });
+
   } catch (error) {
     console.error("Fetch claim analysis error:", error);
 
     return NextResponse.json(
-      { success: false, error: "Unable to retrieve claim analysis." },
+      {
+        success: false,
+        error: "Unable to retrieve claim analysis."
+      },
       { status: 500 }
     );
   }

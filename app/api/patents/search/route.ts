@@ -1,6 +1,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { Pool } from "pg";
+import { getAuthUser } from "@/lib/authMiddleware";
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -38,7 +39,54 @@ async function generateEmbedding(text: string): Promise<number[]> {
   return data.embedding;
 }
 
+async function respondWithLoggedSearch(
+  userId: number,
+  query: string,
+  mode: SearchMode,
+  results: Record<string, unknown>[],
+  startTime: number
+) {
+  const duration = Math.max(0, Date.now() - startTime);
+
+  await pool.query(
+    `
+    INSERT INTO search_logs (
+      user_id,
+      query_text,
+      search_type,
+      results_count,
+      duration_ms
+    )
+    VALUES ($1, $2, $3, $4, $5)
+    `,
+    [
+      userId,
+      query,
+      mode.toUpperCase(),
+      results.length,
+      duration,
+    ]
+  );
+
+  return NextResponse.json({
+    query,
+    mode,
+    count: results.length,
+    results,
+  });
+}
+
 export async function GET(request: NextRequest) {
+  const authUser = getAuthUser(request);
+
+  if (!authUser) {
+    return NextResponse.json(
+      { error: "Please log in to search patents." },
+      { status: 401 }
+    );
+  }
+
+  const startTime = Date.now();
   const params = request.nextUrl.searchParams;
   const query = params.get("q")?.trim() ?? "";
 
@@ -61,7 +109,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    // Keyword search: PostgreSQL full-text search.
+    // Keyword search
     if (mode === "keyword") {
       const result = await pool.query(
         `
@@ -93,19 +141,20 @@ export async function GET(request: NextRequest) {
         [query, limit]
       );
 
-      return NextResponse.json({
+      return await respondWithLoggedSearch(
+        authUser.user_id,
         query,
         mode,
-        count: result.rows.length,
-        results: result.rows,
-      });
+        result.rows,
+        startTime
+      );
     }
 
-    // Generate a query embedding for semantic and hybrid search.
+    // Generate query embedding for semantic and hybrid search
     const embedding = await generateEmbedding(query);
     const vector = `[${embedding.join(",")}]`;
 
-    // Semantic search: rank patents by vector similarity.
+    // Semantic search
     if (mode === "semantic") {
       const result = await pool.query(
         `
@@ -128,15 +177,16 @@ export async function GET(request: NextRequest) {
         [vector, limit]
       );
 
-      return NextResponse.json({
+      return await respondWithLoggedSearch(
+        authUser.user_id,
         query,
         mode,
-        count: result.rows.length,
-        results: result.rows,
-      });
+        result.rows,
+        startTime
+      );
     }
 
-    // Hybrid search: combine normalized keyword and semantic scores.
+    // Hybrid search
     const result = await pool.query(
       `
       WITH keyword_scores AS (
@@ -195,12 +245,13 @@ export async function GET(request: NextRequest) {
       [query, vector, limit]
     );
 
-    return NextResponse.json({
+    return await respondWithLoggedSearch(
+      authUser.user_id,
       query,
       mode,
-      count: result.rows.length,
-      results: result.rows,
-    });
+      result.rows,
+      startTime
+    );
   } catch (error) {
     console.error("Patent search error:", error);
 

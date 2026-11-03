@@ -1,12 +1,16 @@
-import { NextResponse } from "next/server";
+﻿import { NextResponse, NextRequest } from "next/server";
 import { pool } from "@/lib/postgres";
 
 const VALID_EVIDENCE_LEVELS = ["EXPLICIT", "PARTIAL", "NONE"];
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   try {
+    const { getAuthUser } = await import('@/lib/authMiddleware');
+    const authUser = getAuthUser(request);
+    if (!authUser) {
+      return NextResponse.json({ success: false, error: 'Authentication required.' }, { status: 401 });
+    }
     const body = await request.json();
-
     const elementId = Number(body.element_id);
     const patentId = Number(body.patent_id);
     const evidenceLevel = String(body.evidence_level || "").toUpperCase();
@@ -29,6 +33,14 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
+    // Ownership check: ensure claim element belongs to an investigation owned by the authenticated user
+    const ownershipCheck = await pool.query(
+      `SELECT i.user_id FROM claim_elements ce JOIN investigations i ON ce.investigation_id = i.investigation_id WHERE ce.element_id = $1`,
+      [elementId]
+    );
+    if (ownershipCheck.rowCount === 0 || ownershipCheck.rows[0].user_id !== authUser.user_id) {
+      return NextResponse.json({ success: false, error: 'Unauthorized access to claim element.' }, { status: 403 });
+    }
 
     if (!VALID_EVIDENCE_LEVELS.includes(evidenceLevel)) {
       return NextResponse.json(
@@ -39,7 +51,6 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
-
     const result = await pool.query(
       `INSERT INTO evidence_mappings
          (element_id, patent_id, evidence_level, evidence_note)
@@ -84,7 +95,12 @@ export async function POST(request: Request) {
   }
 }
 
-export async function GET(request: Request) {
+export async function GET(request: NextRequest) {
+  const { getAuthUser } = await import('@/lib/authMiddleware');
+  const authUser = getAuthUser(request);
+  if (!authUser) {
+    return NextResponse.json({ success: false, error: 'Authentication required.' }, { status: 401 });
+  }
   try {
     const { searchParams } = new URL(request.url);
     const elementId = Number(searchParams.get("element_id"));
@@ -114,8 +130,14 @@ export async function GET(request: Request) {
        JOIN claim_elements ce ON ce.element_id = em.element_id
        JOIN patents p ON p.patent_id = em.patent_id
        WHERE em.element_id = $1
+         AND EXISTS (
+           SELECT 1
+           FROM investigations i
+           WHERE i.investigation_id = ce.investigation_id
+             AND i.user_id = $2
+         )
        ORDER BY em.created_at DESC`,
-      [elementId]
+      [elementId, authUser.user_id]
     );
 
     return NextResponse.json({

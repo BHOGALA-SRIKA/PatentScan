@@ -1,7 +1,13 @@
-import { NextResponse } from "next/server";
+import { NextResponse, NextRequest } from "next/server";
 import { getMongoDatabase } from "@/lib/mongodb";
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
+  // Authenticate user
+  const { getAuthUser } = await import('@/lib/authMiddleware');
+  const authUser = getAuthUser(request);
+  if (!authUser) {
+    return NextResponse.json({ success: false, error: 'Authentication required.' }, { status: 401 });
+  }
   try {
     const body = await request.json();
 
@@ -35,6 +41,7 @@ export async function POST(request: Request) {
       search_method,
       status: "saved",
       created_at: new Date(),
+      user_id: authUser.user_id,
     };
 
     const result = await db
@@ -65,13 +72,18 @@ export async function POST(request: Request) {
   }
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const { getAuthUser } = await import('@/lib/authMiddleware');
+  const authUser = getAuthUser(request);
+  if (!authUser) {
+    return NextResponse.json({ success: false, error: 'Authentication required.' }, { status: 401 });
+  }
   try {
     const db = await getMongoDatabase();
 
     const investigations = await db
       .collection("investigation_metadata")
-      .find({})
+      .find({ user_id: authUser.user_id })
       .sort({ created_at: -1 })
       .toArray();
 

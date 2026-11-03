@@ -1,6 +1,10 @@
 # PatentScan: Hybrid Patent Prior-Art Search & Claim Analysis System
 
-Report: https://github.com/BHOGALA-SRIKA/PatentScan/blob/master/PatentScan_DBMS_Project_Report.docx
+Report: 
+
+pdf: https://github.com/BHOGALA-SRIKA/PatentScan/blob/master/PatentScan_DBMS_Project_Report.pdf
+
+doc: https://github.com/BHOGALA-SRIKA/PatentScan/blob/master/PatentScan_DBMS_Project_Report.docx
 
 PatentScan is a database-driven application designed to help researchers, student innovators, R&D teams, and intellectual property (IP) professionals explore potentially relevant existing patents for a proposed invention.
 
